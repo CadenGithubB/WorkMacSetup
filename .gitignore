@@ -1,0 +1,11 @@
+# Local configuration and client data. Keep these private.
+setup.conf
+clients.tsv
+
+# macOS metadata
+.DS_Store
+
+# Local compiler intermediates and unpacked app bundles.
+# The distributable ZIP in dist/ is included in the repository.
+.build/
+dist/*.app/

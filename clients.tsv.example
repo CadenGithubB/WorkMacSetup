@@ -1,0 +1,6 @@
+# label<TAB>start_url<TAB>optional_color
+#
+# Use a literal tab between the two columns. Do not put passwords, session tokens,
+# recovery codes, or other secrets in this file.
+Example Client	https://example.invalid/	blue
+Another Client	about:blank	red

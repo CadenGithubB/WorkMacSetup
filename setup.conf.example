@@ -1,0 +1,29 @@
+# Copy this file to setup.conf and edit the copy.
+# setup.conf is intentionally ignored by Git because it may describe your environment.
+
+# The client list is a private, tab-separated file. See clients.tsv.example.
+CLIENTS_FILE="clients.tsv"
+
+# Set to 0 to disable an action.
+SET_WINDOWS_CREDSSP=1
+# Creates ordinary local profiles in Chrome's built-in profile picker.
+# Quit Chrome before running. No Google account or Sync is configured.
+CREATE_CHROME_PROFILES=1
+OPEN_SCREEN_RECORDING_SETTINGS=0
+# Applications to list for Screen & System Audio Recording. The script opens
+# that page and shows them in a floating window; you drag them in and turn on
+# their switches yourself. The script never grants the permission.
+SCREEN_RECORDING_APPS=(
+  # "/Applications/zoom.us.app"
+)
+
+# Optional: list these apps in Terminal and open System Settings > General >
+# Login Items so you can add them under Open at Login yourself. The script
+# never changes login items and asks for no extra permission.
+OPEN_LOGIN_ITEMS_SETTINGS=0
+LOGIN_ITEM_APPS=(
+  # "/Applications/Microsoft Outlook.app"
+)
+
+# Usually this should remain unchanged.
+CHROME_APP_PATH="/Applications/Google Chrome.app"
