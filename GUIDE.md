@@ -77,13 +77,13 @@ The window lists each selected step in the order it runs and marks it as done, d
 
 ### Windows App setting
 
-The checkbox applies and verifies this exact preference for the logged-in user:
+This step comes last. A small window shows this command with a Copy button:
 
 ```sh
 defaults write com.microsoft.rdc.macos ClientSettings.EnforceCredSSPSupport 0
 ```
 
-Quit and reopen Windows App afterward.
+Open Terminal, paste the command, press Return, then click Done. If Terminal asks to access data from other apps, click Allow. Windows App keeps its settings in its own protected folder, so running the command yourself means Work Mac Setup never needs access to Windows App's data. Quit and reopen Windows App afterward.
 
 ## Login items
 

@@ -17,15 +17,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// The guided steps that use the drag palette. Raw values match the script.
+// The guided steps that use the floating palette. Raw values match the script.
 enum DragPaletteStep: String {
     case loginItems = "login-items"
     case screenRecording = "screen-recording"
+    case windowsApp = "windows-app"
+
+    /// Windows App keeps its settings in its own sandbox, and macOS asks before
+    /// another app writes there. The user runs this in Terminal instead.
+    static let windowsAppCommand = "defaults write com.microsoft.rdc.macos ClientSettings.EnforceCredSSPSupport 0"
 
     var windowTitle: String {
         switch self {
         case .loginItems: return "Drag into Open at Login"
         case .screenRecording: return "Allow Screen Recording"
+        case .windowsApp: return "Windows App setting"
         }
     }
 
@@ -33,7 +39,22 @@ enum DragPaletteStep: String {
         switch self {
         case .loginItems: return "Add these apps to Open at Login"
         case .screenRecording: return "Allow these apps to record the screen"
+        case .windowsApp: return "Run this command in Terminal"
         }
+    }
+
+    var symbol: String {
+        self == .windowsApp ? "terminal" : "hand.draw"
+    }
+
+    /// The command to copy, for a step the user finishes in Terminal.
+    var command: String? {
+        self == .windowsApp ? Self.windowsAppCommand : nil
+    }
+
+    /// Steps shown beside System Settings; the others sit beside this app.
+    var usesSystemSettings: Bool {
+        self != .windowsApp
     }
 
     var instructions: String {
@@ -42,6 +63,8 @@ enum DragPaletteStep: String {
             return "In System Settings > General > Login Items, drag each app below into the Open at Login list. When they all appear there, click Done to continue setup."
         case .screenRecording:
             return "In System Settings > Privacy & Security > Screen & System Audio Recording, drag each app below into the list and turn on its switch. Then click Done to continue setup."
+        case .windowsApp:
+            return "Open Terminal, paste this command, and press Return. If Terminal asks to access data from other apps, click Allow. Then click Done to continue setup."
         }
     }
 
@@ -51,6 +74,8 @@ enum DragPaletteStep: String {
             return "No apps were selected. Use the + button under Open at Login to add any you need, then click Done."
         case .screenRecording:
             return "No apps were selected. Use the + button in Screen & System Audio Recording to add any you need, turn on their switches, then click Done."
+        case .windowsApp:
+            return ""
         }
     }
 
@@ -60,22 +85,27 @@ enum DragPaletteStep: String {
             return "Tip: if dragging does not work, click + in System Settings and choose the app."
         case .screenRecording:
             return "Tip: if dragging does not work, click + and choose the app. macOS may ask you to quit and reopen the app."
+        case .windowsApp:
+            return ""
         }
     }
 
-    var openButtonTitle: String {
+    var openButtonTitle: String? {
         switch self {
         case .loginItems: return "Open Login Items"
         case .screenRecording: return "Open Screen Recording"
+        case .windowsApp: return nil
         }
     }
 
-    var settingsURL: URL {
+    var settingsURL: URL? {
         switch self {
         case .loginItems:
-            return URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!
+            return URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
         case .screenRecording:
-            return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+            return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        case .windowsApp:
+            return nil
         }
     }
 }
@@ -88,6 +118,7 @@ final class DragPaletteController {
     private var positioningToken = 0
     private var currentDoneFile: URL?
     private var quitsSettingsOnFinish = false
+    private var currentStep: DragPaletteStep?
 
     func handle(_ url: URL) {
         guard url.scheme?.lowercased() == "workmacsetup", url.host?.lowercased() == "drag-palette" else { return }
@@ -131,10 +162,13 @@ final class DragPaletteController {
     func show(step: DragPaletteStep, apps: [InstalledApp], doneFile: URL? = nil, quitsSettings: Bool = false) {
         currentDoneFile = doneFile
         quitsSettingsOnFinish = quitsSettings
+        currentStep = step
         let content = DragPaletteView(
             step: step,
             apps: apps,
-            openSettings: { NSWorkspace.shared.open(step.settingsURL) },
+            openSettings: {
+                if let url = step.settingsURL { NSWorkspace.shared.open(url) }
+            },
             done: { [weak self] in
                 self?.finishStep()
                 self?.close()
@@ -223,21 +257,31 @@ final class DragPaletteController {
         return NSRect(x: bounds.minX, y: primary.frame.maxY - bounds.maxY, width: bounds.width, height: bounds.height)
     }
 
-    // The spot beside the System Settings window, top-aligned, or nil when
-    // that window is not on screen yet.
+    // This app's main window, for steps that do not involve System Settings.
+    private func appWindowFrame() -> NSRect? {
+        NSApp.windows
+            .filter { $0.isVisible && !$0.isSheet && !($0 is NSPanel) }
+            .max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }?
+            .frame
+    }
+
+    // The spot beside the window the step goes with, top-aligned: System
+    // Settings for guided settings steps, otherwise this app's window. Nil
+    // while that window is not on screen yet.
     private func targetOrigin(for panel: NSPanel) -> NSPoint? {
-        guard let settings = systemSettingsWindowFrame() else { return nil }
+        let usesSettings = currentStep?.usesSystemSettings ?? true
+        guard let anchor = usesSettings ? systemSettingsWindowFrame() : appWindowFrame() else { return nil }
         let size = panel.frame.size
-        let screen = NSScreen.screens.first { $0.frame.intersects(settings) } ?? NSScreen.main
-        let area = screen?.visibleFrame ?? settings
+        let screen = NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.main
+        let area = screen?.visibleFrame ?? anchor
         let gap: CGFloat = 16
-        var origin = NSPoint(x: settings.maxX + gap, y: settings.maxY - size.height)
+        var origin = NSPoint(x: anchor.maxX + gap, y: anchor.maxY - size.height)
         if origin.x + size.width > area.maxX {
-            origin.x = settings.minX - size.width - gap
+            origin.x = anchor.minX - size.width - gap
         }
         if origin.x < area.minX {
-            // No room on either side: overlap the settings window's right edge.
-            origin.x = min(settings.maxX - size.width - gap, area.maxX - size.width)
+            // No room on either side: overlap the window's right edge.
+            origin.x = min(anchor.maxX - size.width - gap, area.maxX - size.width)
         }
         origin.y = max(area.minY, min(origin.y, area.maxY - size.height))
         return origin
@@ -246,6 +290,9 @@ final class DragPaletteController {
     private func fallbackOrigin(for panel: NSPanel) -> NSPoint {
         let size = panel.frame.size
         guard let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return .zero }
+        if currentStep?.usesSystemSettings == false {
+            return NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2)
+        }
         return NSPoint(x: area.maxX - size.width - 24, y: area.maxY - size.height - 24)
     }
 
@@ -259,7 +306,7 @@ final class DragPaletteController {
         let origin: NSPoint
         if let target = targetOrigin(for: panel) {
             origin = target
-        } else if attempt < 12 {
+        } else if currentStep?.usesSystemSettings != false && attempt < 12 {
             // Keep looking for up to about three seconds.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.placeAndReveal(panel, token: token, attempt: attempt + 1)
@@ -296,16 +343,20 @@ private struct DragPaletteView: View {
     let openSettings: () -> Void
     let done: () -> Void
 
+    @State private var copied = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(step.heading, systemImage: "hand.draw")
+            Label(step.heading, systemImage: step.symbol)
                 .font(.headline)
             Text(step.instructions)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if apps.isEmpty {
+            if let command = step.command {
+                commandBox(command)
+            } else if apps.isEmpty {
                 Text(step.emptyText)
                     .font(.callout)
                     .padding(.vertical, 8)
@@ -330,7 +381,9 @@ private struct DragPaletteView: View {
             }
 
             HStack {
-                Button(step.openButtonTitle, action: openSettings)
+                if let title = step.openButtonTitle {
+                    Button(title, action: openSettings)
+                }
                 Spacer()
                 Button("Done", action: done)
                     .keyboardShortcut(.defaultAction)
@@ -338,7 +391,34 @@ private struct DragPaletteView: View {
             }
         }
         .padding(16)
-        .frame(width: 340)
+        .frame(width: step.command == nil ? 340 : 400)
+    }
+
+    // The command as selectable text, with a button that copies it exactly.
+    private func commandBox(_ command: String) -> some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            Text(command)
+                .font(.system(.callout, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.separator, lineWidth: 1)
+                }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+            } label: {
+                Label(copied ? "Copied" : "Copy Command", systemImage: copied ? "checkmark" : "doc.on.doc")
+            }
+            .accessibilityLabel("Copy the command")
+        }
     }
 }
 

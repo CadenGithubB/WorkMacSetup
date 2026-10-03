@@ -29,15 +29,14 @@ To rebuild the app after changing its source or scripts:
 
 ## What it does
 
-- Sets this Windows App preference for the signed-in user and verifies it:
+- Creates a local Chrome profile for each new client, with its own cookies, cache, sessions, and browsing history. The profiles have no linked Google account, and Chrome Sync stays off.
+- Optionally opens **General > Login Items** with a floating **Drag into Open at Login** window listing the apps you picked, so you can drag each one into the list. The app never changes login items itself.
+- Optionally opens **Privacy & Security > Screen & System Audio Recording** with a floating **Allow Screen Recording** window, so you can drag each app in and turn on its switch. The app never grants the permission itself.
+- Optionally shows this Windows App command in a floating window with a Copy button, for you to paste into Terminal. Windows App keeps its settings in its own protected folder, so the app never changes them itself. When you run the script from Terminal, it runs the command directly.
 
   ```sh
   defaults write com.microsoft.rdc.macos ClientSettings.EnforceCredSSPSupport 0
   ```
-
-- Creates a local Chrome profile for each new client, with its own cookies, cache, sessions, and browsing history. The profiles have no linked Google account, and Chrome Sync stays off.
-- Optionally opens **General > Login Items** with a floating **Drag into Open at Login** window listing the apps you picked, so you can drag each one into the list. The app never changes login items itself.
-- Optionally opens **Privacy & Security > Screen & System Audio Recording** with a floating **Allow Screen Recording** window, so you can drag each app in and turn on its switch. The app never grants the permission itself.
 
 It does not store passwords, link a Google account, or enable Chrome Sync.
 
@@ -81,4 +80,4 @@ Options:
 - If Chrome isn't installed, install Google Chrome Stable and run setup again. Profiles this app already created are skipped unchanged.
 - If Chrome is running, quit it with **Command-Q** before running setup. Setup never quits it for you.
 - If a client name is already a Chrome profile this app didn't create, rename or remove that client. The existing profile is never changed.
-- The Windows App preference applies to the signed-in user. Quit and reopen Windows App afterward.
+- If Terminal asks to access data from other apps when you paste the Windows App command, click Allow. Quit and reopen Windows App afterward.

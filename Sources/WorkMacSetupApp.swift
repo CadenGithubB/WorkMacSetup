@@ -460,7 +460,13 @@ struct ContentView: View {
                                     .foregroundStyle(.secondary)
                                     .padding(.leading, 20)
                             }
-                            Toggle("Set Windows App EnforceCredSSPSupport to 0", isOn: $setWindowsCredSSP)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle("Set Windows App EnforceCredSSPSupport to 0", isOn: $setWindowsCredSSP)
+                                Text("Shows a command to paste into Terminal; this app never changes Windows App's settings itself.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.leading, 20)
+                            }
                             VStack(alignment: .leading, spacing: 6) {
                                 Toggle("Open Login Items settings to add selected apps", isOn: Binding(
                                     get: { openLoginItemsSettings },
@@ -672,10 +678,10 @@ struct ContentView: View {
         // The selected steps, in the order the script runs them. The ids match
         // the step names the script records in the status file.
         var steps: [SetupStep] = []
-        if setWindowsCredSSP { steps.append(SetupStep(id: "windows-app", title: "Windows App CredSSP setting")) }
         if createChromeProfiles { steps.append(SetupStep(id: "chrome-profiles", title: "Chrome profiles for \(clients.count) client\(clients.count == 1 ? "" : "s")")) }
         if openLoginItemsSettings { steps.append(SetupStep(id: "login-items", title: "Login items")) }
         if openPrivacySettings { steps.append(SetupStep(id: "screen-recording", title: "Screen recording permissions")) }
+        if setWindowsCredSSP { steps.append(SetupStep(id: "windows-app", title: "Windows App CredSSP setting")) }
 
         // Setup runs inside the app; its progress and output appear in the result window.
         let run = SetupRun(steps: steps, workDirectory: directory, statusFile: statusURL)

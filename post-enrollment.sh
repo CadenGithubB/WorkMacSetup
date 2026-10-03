@@ -93,6 +93,7 @@ PALETTE_URL=""
 LISTED_APPS=0
 STEP_DONE_DIR=""
 STEP_READER_PID=""
+WINDOWS_APP_COMMAND="defaults write com.microsoft.rdc.macos ClientSettings.EnforceCredSSPSupport 0"
 
 timestamp() {
   /bin/date '+%Y-%m-%d %H:%M:%S'
@@ -243,12 +244,15 @@ guided_settings_step() {
     PALETTE_URL="${PALETTE_URL}&done=$(url_encode "$done_file")"
   fi
 
-  log "Opening System Settings > ${page}."
-  if ! run_as_user /usr/bin/open "$settings_url"; then
-    warn "The direct System Settings URL failed; opening System Settings instead."
-    if ! run_as_user /usr/bin/open -a "System Settings"; then
-      fail "Could not open System Settings."
-      return
+  # Steps finished outside System Settings pass an empty settings URL.
+  if [[ -n "$settings_url" ]]; then
+    log "Opening System Settings > ${page}."
+    if ! run_as_user /usr/bin/open "$settings_url"; then
+      warn "The direct System Settings URL failed; opening System Settings instead."
+      if ! run_as_user /usr/bin/open -a "System Settings"; then
+        fail "Could not open System Settings."
+        return
+      fi
     fi
   fi
 
@@ -290,7 +294,7 @@ guided_settings_step() {
     drag_palette "$close_url" >/dev/null 2>&1 || true
     log "Continuing after ${page}."
   else
-    log "The drag window is not available; finish the ${page} step in System Settings yourself. Continuing."
+    log "The setup window is not available; finish the ${page} step yourself. Continuing."
   fi
 
   if [[ -n "$done_dir" ]]; then
@@ -436,6 +440,21 @@ configure_windows_app() {
     return
   fi
 
+  # Windows App keeps its settings in its own sandbox, and macOS asks before
+  # another app writes there. From the app, show the command for the user to
+  # paste into Terminal, so Work Mac Setup never needs that access. From
+  # Terminal, the script is already running there, so set it directly.
+  if [[ ! -t 0 ]]; then
+    log "Windows App setting to run in Terminal:"
+    /usr/bin/printf '  %s\n' "$WINDOWS_APP_COMMAND"
+    PALETTE_URL="workmacsetup://drag-palette?step=windows-app"
+    guided_settings_step "" "Windows App setting" 0 \
+      'Open Terminal, paste the command above, and press Return.' \
+      'A small "Windows App setting" window shows the command with a Copy button.' \
+      'Paste it into Terminal and press Return. If Terminal asks to access data from other apps, click Allow.'
+    return
+  fi
+
   log "Setting the Windows App CredSSP preference for ${CONSOLE_USER}."
   # This is intentionally the exact preference domain, key, and value requested.
   if ! run_as_user /usr/bin/defaults write com.microsoft.rdc.macos ClientSettings.EnforceCredSSPSupport 0; then
@@ -576,10 +595,10 @@ run_step() {
 
 log "Starting setup for ${CONSOLE_USER}."
 collect_interactive_clients
-run_step windows-app configure_windows_app
 run_step chrome-profiles create_chrome_profiles
 run_step login-items open_login_items_settings
 run_step screen-recording open_privacy_settings
+run_step windows-app configure_windows_app
 
 if [[ "$FAILURES" -gt 0 ]]; then
   /usr/bin/printf '\nSetup finished with %d error(s). Review the messages above.\n' "$FAILURES" >&2
