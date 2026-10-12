@@ -27,6 +27,8 @@ To rebuild the app after changing its source or scripts:
 ./build-app.sh
 ```
 
+To package a GitHub release, run `Tools/make-release.sh`. It rebuilds the app, then writes `dist/release/Work-Mac-Setup.zip` and `SHA256SUMS.txt`: a stripped copy signed ad hoc with the Hardened Runtime, checked for local paths and build-machine metadata, with no extended attributes or resource forks. The result is not Developer ID signed or notarized.
+
 ## What it does
 
 - Creates a local Chrome profile for each new client, with its own cookies, cache, sessions, and browsing history. The profiles have no linked Google account, and Chrome Sync stays off.

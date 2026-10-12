@@ -9,3 +9,7 @@ clients.tsv
 # The distributable ZIP in dist/ is included in the repository.
 .build/
 dist/*.app/
+
+# Release packaging output and staging from Tools/make-release.sh.
+dist/release/
+dist/.release-stage.*/
