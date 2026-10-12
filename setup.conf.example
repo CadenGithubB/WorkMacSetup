@@ -9,6 +9,14 @@ SET_WINDOWS_CREDSSP=1
 # Creates ordinary local profiles in Chrome's built-in profile picker.
 # Quit Chrome before running. No Google account or Sync is configured.
 CREATE_CHROME_PROFILES=1
+
+# Optional: show these installed apps in a floating window so you can drag
+# them onto the apps side of the Dock. Adding and arranging icons is manual.
+SHOW_DOCK_APPS=0
+DOCK_APPS=(
+  # "/Applications/Microsoft Outlook.app"
+)
+
 OPEN_SCREEN_RECORDING_SETTINGS=0
 # Applications to list for Screen & System Audio Recording. The script opens
 # that page and shows them in a floating window; you drag them in and turn on

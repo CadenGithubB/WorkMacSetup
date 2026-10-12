@@ -109,114 +109,6 @@ private struct LabeledEditor: View {
     }
 }
 
-struct InstalledApp: Identifiable, Hashable {
-    let path: String
-    let name: String
-    let bundleID: String?
-    let icon: NSImage
-
-    var id: String { path }
-
-    // The folder shown beside the name, e.g. "Applications" or "KiCad".
-    var folderName: String {
-        URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent
-    }
-
-    static func == (lhs: InstalledApp, rhs: InstalledApp) -> Bool { lhs.path == rhs.path }
-    func hash(into hasher: inout Hasher) { hasher.combine(path) }
-}
-
-// Lists installed applications from the standard application folders only.
-// These folders are not privacy-protected, so no permission prompt appears.
-// Desktop, Documents, Downloads, and other protected locations are never read.
-enum InstalledAppScanner {
-    static var roots: [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return [
-            URL(fileURLWithPath: "/Applications", isDirectory: true),
-            URL(fileURLWithPath: "/Applications/Utilities", isDirectory: true),
-            URL(fileURLWithPath: "/System/Applications", isDirectory: true),
-            URL(fileURLWithPath: "/System/Applications/Utilities", isDirectory: true),
-            home.appendingPathComponent("Applications", isDirectory: true),
-        ]
-    }
-
-    static func isApplication(at url: URL) -> Bool {
-        url.pathExtension == "app" && isDirectory(url)
-    }
-
-    // Accepts only installed apps inside the scanned folders (one vendor folder
-    // deep), so a path received from outside the app can never point the app at
-    // a privacy-protected location.
-    static func isTrustedApplicationPath(_ path: String) -> Bool {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        guard isApplication(at: url) else { return false }
-        let parent = url.deletingLastPathComponent()
-        let grandparent = parent.deletingLastPathComponent()
-        return roots.contains { root in
-            let root = root.standardizedFileURL
-            return parent == root || (grandparent == root && parent.pathExtension != "app")
-        }
-    }
-
-    static func installedApp(at path: String) -> InstalledApp? {
-        guard isTrustedApplicationPath(path) else { return nil }
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        return InstalledApp(
-            path: url.path,
-            name: FileManager.default.displayName(atPath: url.path),
-            bundleID: Bundle(url: url)?.bundleIdentifier,
-            icon: NSWorkspace.shared.icon(forFile: url.path)
-        )
-    }
-
-    static func isDirectory(_ url: URL) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    private static func entries(of directory: URL) -> [URL] {
-        (try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants, .skipsPackageDescendants]
-        )) ?? []
-    }
-
-    static func scan() -> [InstalledApp] {
-        let fileManager = FileManager.default
-        var seen = Set<String>()
-        var apps: [InstalledApp] = []
-
-        func add(_ url: URL) {
-            let bundleID = Bundle(url: url)?.bundleIdentifier
-            // Dedupe by bundle ID; an app without one is identified by its path.
-            guard seen.insert(bundleID ?? url.path).inserted else { return }
-            apps.append(InstalledApp(
-                path: url.path,
-                name: fileManager.displayName(atPath: url.path),
-                bundleID: bundleID,
-                icon: NSWorkspace.shared.icon(forFile: url.path)
-            ))
-        }
-
-        for root in roots {
-            for entry in entries(of: root) where isDirectory(entry) {
-                if isApplication(at: entry) {
-                    add(entry)
-                } else {
-                    // One level of vendor folders such as /Applications/Microsoft Office.
-                    // Never descend into .app bundles.
-                    for nested in entries(of: entry) where isApplication(at: nested) {
-                        add(nested)
-                    }
-                }
-            }
-        }
-
-        return apps.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-}
 
 private struct InstalledAppChecklist: View {
     let title: String
@@ -312,6 +204,9 @@ struct ContentView: View {
     @AppStorage("openScreenRecordingSettings") private var openPrivacySettings = false
     // New key so the step is off by default, even where a test build saved it on.
     @AppStorage("openLoginItemsStep") private var openLoginItemsSettings = false
+    @AppStorage("showDockApps") private var showDockApps = false
+    // Newline-separated .app paths the user wants to add to the Dock.
+    @AppStorage("dockApps") private var dockApps = ""
     // Newline-separated .app paths the user wants to add under Open at Login.
     @AppStorage("loginItemApps") private var loginItemApps = ""
     // Newline-separated .app paths to allow under Screen & System Audio Recording.
@@ -322,6 +217,7 @@ struct ContentView: View {
     @State private var clientLines = ""
     @State private var alertMessage = ""
     @State private var showingAlert = false
+    @State private var showingDockApps = false
     @State private var showingLoginItems = false
     @State private var showingScreenRecordingApps = false
     @State private var activeRun: SetupRun?
@@ -341,6 +237,7 @@ struct ContentView: View {
         storedPaths(stored).filter { InstalledAppScanner.isApplication(at: URL(fileURLWithPath: $0)) }
     }
 
+    private var selectedDockPaths: [String] { installedPaths(dockApps) }
     private var selectedLoginItemPaths: [String] { installedPaths(loginItemApps) }
     private var selectedScreenRecordingPaths: [String] { installedPaths(screenRecordingApps) }
 
@@ -404,7 +301,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Work Mac Setup")
                             .font(.largeTitle.bold())
-                        Text("Create client Chrome profiles, then select login items and screen recording permissions")
+                        Text("Create client Chrome profiles and set up your work apps")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -466,6 +363,33 @@ struct ContentView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .padding(.leading, 20)
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Toggle("Add selected apps to the Dock", isOn: Binding(
+                                    get: { showDockApps },
+                                    set: { enabled in
+                                        showDockApps = enabled
+                                        showingDockApps = false
+                                    }
+                                ))
+
+                                if showDockApps {
+                                    DisclosureGroup(isExpanded: $showingDockApps) {
+                                        InstalledAppChecklist(
+                                            title: "Apps to add to the Dock",
+                                            help: "Setup shows a small floating window with these apps. Drag each one between the app icons in the Dock to add it.",
+                                            apps: installedApps,
+                                            isScanning: isScanningApps,
+                                            selectedPaths: Set(selectedDockPaths),
+                                            toggle: { app, selected in dockApps = updatedSelection(dockApps, app: app, selected: selected) }
+                                        )
+                                        .padding(.top, 6)
+                                        .task { scanInstalledAppsIfNeeded() }
+                                    } label: {
+                                        DisclosureLabel(title: "Apps to add to the Dock (\(selectedDockPaths.count))", isExpanded: $showingDockApps)
+                                    }
+                                    .padding(.leading, 20)
+                                }
                             }
                             VStack(alignment: .leading, spacing: 6) {
                                 Toggle("Open Login Items settings to add selected apps", isOn: Binding(
@@ -543,6 +467,7 @@ struct ContentView: View {
             .padding(24)
             // Expanding an editor adds content below the fold; bring it and the
             // Run buttons into view so it is clear the window has grown.
+            .onChange(of: showingDockApps) { expanded in if expanded { revealActions(proxy) } }
             .onChange(of: showingLoginItems) { expanded in if expanded { revealActions(proxy) } }
             .onChange(of: showingScreenRecordingApps) { expanded in if expanded { revealActions(proxy) } }
             }
@@ -655,6 +580,8 @@ struct ContentView: View {
             "\(entry.name)\t\(entry.startURL)\t\(entry.color)"
         }.joined(separator: "\n") + (clients.isEmpty ? "" : "\n")
 
+        let dockPaths = showDockApps ? selectedDockPaths : []
+        let dockValues = dockPaths.map(shellQuote).joined(separator: " ")
         let loginItemPaths = openLoginItemsSettings ? selectedLoginItemPaths : []
         let loginItemValues = loginItemPaths.map(shellQuote).joined(separator: " ")
         let screenRecordingPaths = openPrivacySettings ? selectedScreenRecordingPaths : []
@@ -664,6 +591,8 @@ struct ContentView: View {
         STATUS_FILE=\(shellQuote(statusURL.path))
         SET_WINDOWS_CREDSSP=\(setWindowsCredSSP ? 1 : 0)
         CREATE_CHROME_PROFILES=\(createChromeProfiles ? 1 : 0)
+        SHOW_DOCK_APPS=\(showDockApps ? 1 : 0)
+        DOCK_APPS=(\(dockValues))
         OPEN_SCREEN_RECORDING_SETTINGS=\(openPrivacySettings ? 1 : 0)
         SCREEN_RECORDING_APPS=(\(screenRecordingValues))
         OPEN_LOGIN_ITEMS_SETTINGS=\(openLoginItemsSettings ? 1 : 0)
@@ -679,6 +608,7 @@ struct ContentView: View {
         // the step names the script records in the status file.
         var steps: [SetupStep] = []
         if createChromeProfiles { steps.append(SetupStep(id: "chrome-profiles", title: "Chrome profiles for \(clients.count) client\(clients.count == 1 ? "" : "s")")) }
+        if showDockApps { steps.append(SetupStep(id: "dock", title: "Dock apps")) }
         if openLoginItemsSettings { steps.append(SetupStep(id: "login-items", title: "Login items")) }
         if openPrivacySettings { steps.append(SetupStep(id: "screen-recording", title: "Screen recording permissions")) }
         if setWindowsCredSSP { steps.append(SetupStep(id: "windows-app", title: "Windows App CredSSP setting")) }

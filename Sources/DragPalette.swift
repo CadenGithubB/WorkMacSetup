@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
+#if !DOCK_DRAG_HELPER
 // Handles workmacsetup://drag-palette URLs sent by post-enrollment.sh when it
-// reaches a guided System Settings step. The URL only names the step and the
+// reaches a guided setup step. The URL only names the step and the
 // installed apps to show in a floating drag palette; nothing is launched and
 // no setting is changed by the app.
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -13,12 +14,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DockDragRunner.shared.cancel()
         SetupRun.current?.stopForQuit()
     }
 }
+#endif
 
 // The guided steps that use the floating palette. Raw values match the script.
 enum DragPaletteStep: String {
+    case dock = "dock"
     case loginItems = "login-items"
     case screenRecording = "screen-recording"
     case windowsApp = "windows-app"
@@ -29,6 +33,7 @@ enum DragPaletteStep: String {
 
     var windowTitle: String {
         switch self {
+        case .dock: return "Drag into the Dock"
         case .loginItems: return "Drag into Open at Login"
         case .screenRecording: return "Allow Screen Recording"
         case .windowsApp: return "Windows App setting"
@@ -37,6 +42,7 @@ enum DragPaletteStep: String {
 
     var heading: String {
         switch self {
+        case .dock: return "Add these apps to the Dock"
         case .loginItems: return "Add these apps to Open at Login"
         case .screenRecording: return "Allow these apps to record the screen"
         case .windowsApp: return "Run this command in Terminal"
@@ -54,11 +60,22 @@ enum DragPaletteStep: String {
 
     /// Steps shown beside System Settings; the others sit beside this app.
     var usesSystemSettings: Bool {
-        self != .windowsApp
+        self == .loginItems || self == .screenRecording
+    }
+
+    var dragDestination: String {
+        switch self {
+        case .dock: return "the Dock"
+        case .loginItems: return "Open at Login"
+        case .screenRecording: return "Screen & System Audio Recording"
+        case .windowsApp: return "Terminal"
+        }
     }
 
     var instructions: String {
         switch self {
+        case .dock:
+            return "Drag each app below onto the apps side of the Dock, placing it where you want it. Click Done when you are finished."
         case .loginItems:
             return "In System Settings > General > Login Items, drag each app below into the Open at Login list. When they all appear there, click Done to continue setup."
         case .screenRecording:
@@ -70,6 +87,8 @@ enum DragPaletteStep: String {
 
     var emptyText: String {
         switch self {
+        case .dock:
+            return "No apps were selected. You can drag apps from Finder into the Dock, or click Done to continue."
         case .loginItems:
             return "No apps were selected. Use the + button under Open at Login to add any you need, then click Done."
         case .screenRecording:
@@ -81,6 +100,8 @@ enum DragPaletteStep: String {
 
     var tip: String {
         switch self {
+        case .dock:
+            return "Drop to the left of the divider in a bottom Dock, or above it in a side Dock. If the Dock is hidden, move the pointer to its edge of the screen."
         case .loginItems:
             return "Tip: if dragging does not work, click + in System Settings and choose the app."
         case .screenRecording:
@@ -92,6 +113,7 @@ enum DragPaletteStep: String {
 
     var openButtonTitle: String? {
         switch self {
+        case .dock: return nil
         case .loginItems: return "Open Login Items"
         case .screenRecording: return "Open Screen Recording"
         case .windowsApp: return nil
@@ -100,6 +122,8 @@ enum DragPaletteStep: String {
 
     var settingsURL: URL? {
         switch self {
+        case .dock:
+            return nil
         case .loginItems:
             return URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
         case .screenRecording:
@@ -119,6 +143,53 @@ final class DragPaletteController {
     private var currentDoneFile: URL?
     private var quitsSettingsOnFinish = false
     private var currentStep: DragPaletteStep?
+    private var completion: (() -> Void)?
+    var dockEdgeOverride: String?
+    var dockAnchorOverride: NSRect?
+
+    #if !DOCK_DRAG_HELPER
+    private func showReadOnlyDock(apps: [InstalledApp], doneFile: URL?) {
+        close()
+        let executable = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Helpers/Work Mac Dock Helper.app/Contents/MacOS/WorkMacDockHelper")
+        var arguments = apps.flatMap { ["--app", $0.path] }
+        let edge = CFPreferencesCopyAppValue("orientation" as CFString, "com.apple.dock" as CFString) as? String ?? "bottom"
+        arguments += ["--dock-edge", edge]
+        if let frame = appWindowFrame() {
+            arguments += ["--anchor", NSStringFromRect(frame)]
+        }
+        // Only the parent can write the step marker. The helper receives no
+        // config/client data or write access to installed applications.
+        let complete: (Int32) -> Void = { status in
+            let message = status == 0 ? "" : "error: The read-only Dock window could not complete (exit \(status))."
+            if let doneFile {
+                do {
+                    // Publish contents and existence together; the shell must
+                    // never mistake a partially written error for success.
+                    try Data(message.utf8).write(to: doneFile, options: .atomic)
+                } catch {
+                    SetupRun.current?.stop()
+                    let alert = NSAlert()
+                    alert.messageText = "Could not report the Dock result"
+                    alert.informativeText = "Setup was stopped because its temporary completion file could not be written. Reopen Work Mac Setup and try again."
+                    alert.runModal()
+                    return
+                }
+            }
+            if status != 0 {
+                let alert = NSAlert()
+                alert.messageText = "The Dock window could not complete"
+                alert.informativeText = "Reopen Work Mac Setup and try again. No application-management permission is needed."
+                alert.runModal()
+            }
+        }
+        do {
+            try DockDragRunner.shared.start(executable: executable, arguments: arguments, onFinish: complete)
+        } catch {
+            complete(1)
+        }
+    }
+    #endif
 
     func handle(_ url: URL) {
         guard url.scheme?.lowercased() == "workmacsetup", url.host?.lowercased() == "drag-palette" else { return }
@@ -139,7 +210,14 @@ final class DragPaletteController {
         var seen = Set<String>()
         let doneFile = queryItems.first { $0.name == "done" }?.value.flatMap(Self.validatedDoneFile(_:))
         let isLastStep = queryItems.contains { $0.name == "last" && $0.value == "1" }
-        show(step: step, apps: apps.filter { seen.insert($0.path).inserted }, doneFile: doneFile, quitsSettings: isLastStep)
+        let uniqueApps = apps.filter { seen.insert($0.path).inserted }
+        #if !DOCK_DRAG_HELPER
+        if step == .dock {
+            showReadOnlyDock(apps: uniqueApps, doneFile: doneFile)
+            return
+        }
+        #endif
+        show(step: step, apps: uniqueApps, doneFile: doneFile, quitsSettings: isLastStep)
     }
 
     // The script waits for this empty marker file so that Done in the palette
@@ -159,9 +237,13 @@ final class DragPaletteController {
         return url
     }
 
-    func show(step: DragPaletteStep, apps: [InstalledApp], doneFile: URL? = nil, quitsSettings: Bool = false) {
+    func show(step: DragPaletteStep, apps: [InstalledApp], doneFile: URL? = nil, quitsSettings: Bool = false, onCompletion: (() -> Void)? = nil) {
+        #if !DOCK_DRAG_HELPER
+        DockDragRunner.shared.cancel()
+        #endif
         currentDoneFile = doneFile
-        quitsSettingsOnFinish = quitsSettings
+        completion = onCompletion
+        quitsSettingsOnFinish = quitsSettings && step.usesSystemSettings
         currentStep = step
         let content = DragPaletteView(
             step: step,
@@ -188,6 +270,11 @@ final class DragPaletteController {
     // Done, or closing the palette with its close button, tells the script to
     // continue. The script's own close request (orderOut) does not count.
     private func finishStep() {
+        if let callback = completion {
+            completion = nil
+            callback()
+            return
+        }
         guard let doneFile = currentDoneFile else { return }
         currentDoneFile = nil
         FileManager.default.createFile(atPath: doneFile.path, contents: nil, attributes: [.posixPermissions: 0o600])
@@ -207,6 +294,10 @@ final class DragPaletteController {
     }
 
     func close() {
+        #if !DOCK_DRAG_HELPER
+        DockDragRunner.shared.cancel()
+        #endif
+        completion = nil
         currentDoneFile = nil
         panel?.orderOut(nil)
     }
@@ -226,7 +317,7 @@ final class DragPaletteController {
         panel.isMovableByWindowBackground = false
         panel.becomesKeyOnlyIfNeeded = true
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
-            self?.finishStep()
+            MainActor.assumeIsolated { self?.finishStep() }
         }
         return panel
     }
@@ -265,10 +356,55 @@ final class DragPaletteController {
             .frame
     }
 
+    // Leave a small gap beside the Dock and keep the whole palette in the
+    // usable screen area. The saved edge also works when the Dock is hidden.
+    private func dockOrigin(for panel: NSPanel) -> NSPoint? {
+        let anchor = dockAnchorOverride ?? appWindowFrame()
+        let edge: String?
+        #if DOCK_DRAG_HELPER
+        edge = dockEdgeOverride
+        #else
+        edge = dockEdgeOverride ?? (CFPreferencesCopyAppValue("orientation" as CFString, "com.apple.dock" as CFString) as? String)
+        #endif
+        let screens = NSScreen.screens.sorted { first, second in
+            guard let anchor else { return first == NSScreen.main && second != NSScreen.main }
+            let a = first.frame.intersection(anchor)
+            let b = second.frame.intersection(anchor)
+            return a.width * a.height > b.width * b.height
+        }
+        // A visible Dock reserves space at its edge. Prefer that display when
+        // it differs from the one containing the setup window.
+        let screen = screens.first { screen in
+            switch edge {
+            case "left": return screen.visibleFrame.minX - screen.frame.minX > 8
+            case "right": return screen.frame.maxX - screen.visibleFrame.maxX > 8
+            default: return screen.visibleFrame.minY - screen.frame.minY > 8
+            }
+        } ?? screens.first
+        guard let screen else { return nil }
+
+        let area = screen.visibleFrame
+        let size = panel.frame.size
+        let gap: CGFloat = 16
+        var origin: NSPoint
+        switch edge {
+        case "left":
+            origin = NSPoint(x: area.minX + gap, y: area.midY - size.height / 2)
+        case "right":
+            origin = NSPoint(x: area.maxX - size.width - gap, y: area.midY - size.height / 2)
+        default:
+            origin = NSPoint(x: area.midX - size.width / 2, y: area.minY + gap)
+        }
+        origin.x = max(area.minX, min(origin.x, area.maxX - size.width))
+        origin.y = max(area.minY, min(origin.y, area.maxY - size.height))
+        return origin
+    }
+
     // The spot beside the window the step goes with, top-aligned: System
     // Settings for guided settings steps, otherwise this app's window. Nil
     // while that window is not on screen yet.
     private func targetOrigin(for panel: NSPanel) -> NSPoint? {
+        if currentStep == .dock { return dockOrigin(for: panel) }
         let usesSettings = currentStep?.usesSystemSettings ?? true
         guard let anchor = usesSettings ? systemSettingsWindowFrame() : appWindowFrame() else { return nil }
         let size = panel.frame.size
@@ -361,13 +497,16 @@ private struct DragPaletteView: View {
                     .font(.callout)
                     .padding(.vertical, 8)
             } else {
-                VStack(spacing: 4) {
-                    ForEach(apps) { app in
-                        AppDragRow(app: app, step: step)
-                            .frame(height: 48)
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(apps) { app in
+                            AppDragRow(app: app, step: step)
+                                .frame(height: 48)
+                        }
                     }
+                    .padding(6)
                 }
-                .padding(6)
+                .frame(height: min(CGFloat(apps.count) * 52 + 8, 300))
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay {
@@ -473,8 +612,8 @@ final class AppDragView: NSView, NSDraggingSource {
             hintView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             hintView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
-        toolTip = "Drag \(app.name) into the \(step.windowTitle) list"
-        setAccessibilityLabel("Drag \(app.name) into \(step.windowTitle)")
+        toolTip = "Drag \(app.name) into \(step.dragDestination)"
+        setAccessibilityLabel("Drag \(app.name) into \(step.dragDestination)")
     }
 
     @available(*, unavailable)
@@ -501,14 +640,7 @@ final class AppDragView: NSView, NSDraggingSource {
         guard hypot(current.x - origin.x, current.y - origin.y) > 4 else { return }
         mouseDownEvent = nil
 
-        // Offer the app as a public.file-url pasteboard item, as a Finder drag
-        // does. Writing an NSURL instead makes AppKit try to issue a sandbox
-        // extension for the app bundle, which macOS reports as an attempt to
-        // modify another app and blocks under App Management. A plain
-        // pasteboard item carries the same file URL without that.
-        let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(URL(fileURLWithPath: app.path).absoluteString, forType: .fileURL)
-        let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        let item = NSDraggingItem(pasteboardWriter: Self.pasteboardItem(for: app.path))
         let dragSize = NSSize(width: 64, height: 64)
         item.setDraggingFrame(
             NSRect(x: current.x - dragSize.width / 2, y: current.y - dragSize.height / 2, width: dragSize.width, height: dragSize.height),
@@ -517,8 +649,22 @@ final class AppDragView: NSView, NSDraggingSource {
         beginDraggingSession(with: [item], event: start, source: self)
     }
 
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+    static func pasteboardItem(for path: String) -> NSPasteboardItem {
+        // Publish only the app's location, not its contents. macOS still handles
+        // file-access checks for this payload; a plain item does not bypass them.
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
+        return pasteboardItem
+    }
+
+    static func sourceOperationMask(for context: NSDraggingContext) -> NSDragOperation {
+        // All app palettes use the same drag contract. Step titles and window
+        // placement must not change which operations the destination can use.
         context == .outsideApplication ? [.copy, .link, .generic] : []
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        Self.sourceOperationMask(for: context)
     }
 
     override func mouseEntered(with event: NSEvent) {

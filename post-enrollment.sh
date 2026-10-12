@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Setup for a new work Mac: Chrome profiles, the Windows App setting, and
-# guided Login Items and Screen Recording steps. No administrator password needed.
+# guided Dock, Login Items, and Screen Recording steps. No administrator password needed.
 # Compatible with the Bash 3.2 version included with macOS.
 
 set -u
@@ -75,6 +75,7 @@ source "$CONFIG_FILE"
 : "${CREATE_CHROME_PROFILES:=${CREATE_CHROME_LAUNCHERS:-1}}"
 : "${OPEN_SCREEN_RECORDING_SETTINGS:=0}"
 : "${OPEN_LOGIN_ITEMS_SETTINGS:=0}"
+: "${SHOW_DOCK_APPS:=0}"
 : "${CHROME_APP_PATH:=/Applications/Google Chrome.app}"
 # Set by the app so its window can show each step's state; unused otherwise.
 : "${STATUS_FILE:=}"
@@ -85,6 +86,9 @@ fi
 
 if ! declare -p LOGIN_ITEM_APPS >/dev/null 2>&1; then
   LOGIN_ITEM_APPS=()
+fi
+if ! declare -p DOCK_APPS >/dev/null 2>&1; then
+  DOCK_APPS=()
 fi
 if ! declare -p SCREEN_RECORDING_APPS >/dev/null 2>&1; then
   SCREEN_RECORDING_APPS=()
@@ -295,6 +299,14 @@ guided_settings_step() {
     log "Continuing after ${page}."
   else
     log "The setup window is not available; finish the ${page} step yourself. Continuing."
+  fi
+
+  if [[ -n "$done_file" && -s "$done_file" ]]; then
+    local completion_message
+    completion_message="$(< "$done_file")"
+    if [[ "$completion_message" == 'error: '* ]]; then
+      fail "${completion_message#error: }"
+    fi
   fi
 
   if [[ -n "$done_dir" ]]; then
@@ -516,6 +528,26 @@ create_chrome_profiles() {
   fi
 }
 
+show_dock_apps() {
+  if [[ "$SHOW_DOCK_APPS" -ne 1 ]]; then
+    log "Skipping Dock apps."
+    return
+  fi
+
+  log "Applications to add to the Dock:"
+  if [[ ${#DOCK_APPS[@]} -gt 0 ]]; then
+    list_step_apps dock "${DOCK_APPS[@]}"
+  else
+    list_step_apps dock
+  fi
+
+  guided_settings_step "" "Dock apps" 0 \
+    'In Finder, locate the applications listed above and drag each one onto the apps side of the Dock, before the separator beside folders and Trash.' \
+    'A small "Drag into the Dock" window lists the applications above.' \
+    'Drag each icon from that window onto the apps side of the Dock, before the separator beside folders and Trash.' \
+    'Place each icon where you want it. If the Dock is hidden, move the pointer to its screen edge to reveal it.'
+}
+
 open_login_items_settings() {
   if [[ "$OPEN_LOGIN_ITEMS_SETTINGS" -ne 1 ]]; then
     log "Skipping Login Items settings."
@@ -596,6 +628,7 @@ run_step() {
 log "Starting setup for ${CONSOLE_USER}."
 collect_interactive_clients
 run_step chrome-profiles create_chrome_profiles
+run_step dock show_dock_apps
 run_step login-items open_login_items_settings
 run_step screen-recording open_privacy_settings
 run_step windows-app configure_windows_app

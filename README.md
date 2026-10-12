@@ -1,6 +1,6 @@
 # Work Mac setup aid
 
-This setup aid gets a work Mac ready for client work: local Chrome profiles for your clients, the Windows App setting, and guided login items and screen recording permissions.
+This setup aid gets a work Mac ready for client work: local Chrome profiles for your clients, the Windows App setting, and guided Dock apps, login items, and screen recording permissions.
 
 ## Use the Mac app
 
@@ -9,7 +9,7 @@ Open `dist/Work Mac Setup.app`. It provides:
 - A **Client list** in **1. Client Chrome profiles**, where you paste client names, one per line. There is no fixed client limit.
 - Optional color flags such as `Client Name -blue`, `Client Name -red`, or `Client Name -#7B61FF`.
 - An optional start page using `Client Name -blue | https://portal.example.com`.
-- An **Actions** section with a checkbox for each setup action, including guided **Login items** and **Screen Recording** steps with searchable pickers of installed apps.
+- An **Actions** section with a checkbox for each setup action, including guided **Dock apps**, **Login items**, and **Screen Recording** steps with searchable pickers of installed apps.
 - A **Run Setup** button.
 - An **Instructions** button that opens the in-app guide, written in `GUIDE.md` and embedded at build time.
 
@@ -30,6 +30,7 @@ To rebuild the app after changing its source or scripts:
 ## What it does
 
 - Creates a local Chrome profile for each new client, with its own cookies, cache, sessions, and browsing history. The profiles have no linked Google account, and Chrome Sync stays off.
+- Optionally shows a floating **Drag into the Dock** bar with the apps you picked. Drag each app to the apps side of the Dock divider—left of it for a bottom Dock, above it for a vertical Dock—then click Done to continue. The app never changes Dock items itself.
 - Optionally opens **General > Login Items** with a floating **Drag into Open at Login** window listing the apps you picked, so you can drag each one into the list. The app never changes login items itself.
 - Optionally opens **Privacy & Security > Screen & System Audio Recording** with a floating **Allow Screen Recording** window, so you can drag each app in and turn on its switch. The app never grants the permission itself.
 - Optionally shows this Windows App command in a floating window with a Copy button, for you to paste into Terminal. Windows App keeps its settings in its own protected folder, so the app never changes them itself. When you run the script from Terminal, it runs the command directly.
@@ -38,7 +39,7 @@ To rebuild the app after changing its source or scripts:
   defaults write com.microsoft.rdc.macos ClientSettings.EnforceCredSSPSupport 0
   ```
 
-It does not store passwords, link a Google account, or enable Chrome Sync.
+It does not store passwords, link a Google account, or enable Chrome Sync. The optional action choices and selected apps are remembered. The pasted client list is not restored when the app reopens; created Chrome profiles and recovery records retain the client names.
 
 ## Command-line use
 
@@ -50,7 +51,7 @@ cp clients.tsv.example clients.tsv
 chmod 600 setup.conf clients.tsv
 ```
 
-Edit `setup.conf` to choose the actions you want. For the Login items step, set `OPEN_LOGIN_ITEMS_SETTINGS=1` and list full `.app` paths in `LOGIN_ITEM_APPS`. For the Screen Recording step, set `OPEN_SCREEN_RECORDING_SETTINGS=1` and list the apps in `SCREEN_RECORDING_APPS`. Each step opens the matching System Settings page, shows the app's floating drag window when the built app is available, and continues when you click Done in that window or press Return in Terminal.
+Edit `setup.conf` to choose the actions you want. For the Dock step, set `SHOW_DOCK_APPS=1` (or `0` to skip it) and list full `.app` paths in `DOCK_APPS=(...)`. For the Login items step, set `OPEN_LOGIN_ITEMS_SETTINGS=1` and list full `.app` paths in `LOGIN_ITEM_APPS`. For the Screen Recording step, set `OPEN_SCREEN_RECORDING_SETTINGS=1` and list the apps in `SCREEN_RECORDING_APPS`. The Dock bar is titled **Drag into the Dock**; drag an app to the apps side of the divider, then click Done. Other steps open the matching System Settings page, show a floating drag window when the built app is available, and continue when you click Done in that window or press Return in Terminal.
 
 Edit `clients.tsv` as `label<TAB>URL<TAB>color`. The color column is optional, and URLs can be `https://`, `http://`, or `about:blank`. `setup.conf` and `clients.tsv` are excluded by `.gitignore`.
 

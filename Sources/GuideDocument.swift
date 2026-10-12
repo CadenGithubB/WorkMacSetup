@@ -12,6 +12,7 @@ struct GuideTopic: Identifiable {
         case "Client profiles": return "person.2"
         case "Colors & start pages": return "paintpalette"
         case "Run setup": return "play.circle"
+        case "Dock apps": return "square.grid.2x2"
         case "Login items": return "checklist"
         case "Permissions & privacy": return "hand.raised"
         case "Troubleshooting": return "wrench.and.screwdriver"

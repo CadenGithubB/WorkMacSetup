@@ -32,11 +32,14 @@ struct GuideDocumentTests {
 
         let guide = try String(contentsOfFile: "GUIDE.md", encoding: .utf8)
         let topics = GuideDocument.parse(guide)
-        precondition(topics.count == 8)
+        precondition(topics.count == 9)
         precondition(!guide.contains("Jamf"))
         precondition(!guide.lowercased().contains("dry run") && !guide.contains("--dry-run"))
         precondition(!topics.contains { $0.title == "Erase & re-enroll" })
         precondition(topics.map(\.id) == Array(0..<topics.count))
+        let dockApps = topics.first { $0.title == "Dock apps" }!
+        precondition(dockApps.symbol == "square.grid.2x2")
+        precondition(!dockApps.summary.isEmpty)
         let loginItems = topics.first { $0.title == "Login items" }!
         precondition(loginItems.symbol == "checklist")
         precondition(!loginItems.summary.isEmpty)
@@ -47,6 +50,8 @@ struct GuideDocumentTests {
             if case .callout(let text) = $0 { return text.contains("does not try") }
             return false
         })
+        precondition(topics.firstIndex { $0.title == "Run setup" }! < topics.firstIndex { $0.title == "Dock apps" }!)
+        precondition(topics.firstIndex { $0.title == "Dock apps" }! < topics.firstIndex { $0.title == "Login items" }!)
         precondition(topics.firstIndex { $0.title == "Login items" }! < topics.firstIndex { $0.title == "Permissions & privacy" }!)
         let privacy = topics.first { $0.title == "Permissions & privacy" }!
         precondition(privacy.summary.isEmpty)

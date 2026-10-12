@@ -85,6 +85,16 @@ defaults write com.microsoft.rdc.macos ClientSettings.EnforceCredSSPSupport 0
 
 Open Terminal, paste the command, press Return, then click Done. If Terminal asks to access data from other apps, click Allow. Windows App keeps its settings in its own protected folder, so running the command yourself means Work Mac Setup never needs access to Windows App's data. Quit and reopen Windows App afterward.
 
+## Dock apps
+
+Dock apps is an optional guided step under Actions. It runs after client Chrome profiles and before Login Items. Select Add selected apps to the Dock, then expand Apps to add to the Dock and choose the installed apps you want.
+
+### Drag them into the Dock
+
+Setup shows a floating Drag into the Dock bar with the apps you selected. Drag each app onto the apps side of the Dock divider: to the left of it when the Dock is at the bottom, or above it when the Dock is vertical. Drop the app where you want it, then click Done in the bar to continue setup.
+
+The app does not add or rearrange Dock items itself. Your Dock-app choice and selected apps are remembered; apps that have since been removed are omitted quietly.
+
 ## Login items
 
 Login items is an optional guided step under Actions. You pick the apps in the setup app. When setup reaches this step, it opens System Settings to the Login Items page and shows a small floating window with those apps, ready to drag into the Open at Login list. The setup app never changes login items itself, so no extra macOS permission is requested.
@@ -116,7 +126,7 @@ When setup reaches this step, it opens Privacy & Security > Screen & System Audi
 
 ### What stays on this Mac
 
-Action choices and the app selections for login items and screen recording are remembered. The pasted client list is not saved in app preferences. Restricted temporary input files are removed when setup finishes.
+Action choices and the app selections for Dock apps, login items, and screen recording are remembered. The pasted client list is not saved in app preferences. Restricted temporary input files are removed when setup finishes.
 
 Chrome profile names and setup records retain the client labels, and Details can show them. Details is not saved; it is discarded when you close the result window. Backups and the setup journal are stored in ~/Library/Application Support/WorkMacSetup. An interrupted run may leave temporary input files behind. Keep passwords and tokens out of client names and URLs.
 
@@ -192,3 +202,5 @@ cp setup.conf.example setup.conf
 ```
 
 Paste one client per line and press Return on an empty line to finish. The same color flags work. For a start page in Terminal input, use a literal tab after the name and color, rather than the app's vertical-bar separator.
+
+Set `SHOW_DOCK_APPS=0` to skip the Dock step, or `SHOW_DOCK_APPS=1` and list full `.app` paths in `DOCK_APPS=(...)`. The floating bar is titled Drag into the Dock; drag each app to the apps side of the Dock divider, then continue with Done.
